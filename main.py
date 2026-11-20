@@ -1,27 +1,34 @@
 #!/usr/bin/env python3
-"""make.fun entry: copy the pre-rendered news image to the output dir.
+"""make.fun entry point: place the pre-rendered image in the output dir.
 
 The image is entry.png beside this file, drawn by generate_image.py
 (a newspaper front page summing up Thursday 19 November 2026).
-The grader runs this program with no network; it only copies the file.
+The grader runs this with no network; all it does is copy the file.
 
-Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
+Local check (stands in for /output):
+
     mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
 """
 
 import os
 import shutil
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
+BASE = Path(__file__).resolve().parent
+LIMIT = 1048576  # 1 MiB: the bounty caps the image at this size
 
-os.makedirs(OUT_DIR, exist_ok=True)
-src = os.path.join(HERE, "entry.png")
-dst = os.path.join(OUT_DIR, "entry.png")
-shutil.copyfile(src, dst)
-# Gate limits for this bounty: a whole PNG or JPEG, at most 1 MiB and
-# at most 1024 by 1024 pixels. Fail loudly here rather than shipping
-# an entry the sealed scorer would reject.
-size = os.path.getsize(dst)
-assert size <= 1048576, f"entry.png is {size} bytes, over the 1 MiB limit"
-print(f"wrote entry.png ({size} bytes)")
+
+def run():
+    target_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+    target_dir.mkdir(parents=True, exist_ok=True)
+    source = BASE / "entry.png"
+    target = target_dir / "entry.png"
+    shutil.copyfile(source, target)
+    size = target.stat().st_size
+    if size > LIMIT:
+        raise SystemExit(f"entry.png is {size} bytes, over the 1 MiB limit")
+    print(f"wrote entry.png ({size} bytes)")
+
+
+if __name__ == "__main__":
+    run()

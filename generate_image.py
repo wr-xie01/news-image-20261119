@@ -1,217 +1,246 @@
 #!/usr/bin/env python3
-"""Draw the make.fun entry image: a newspaper front page summing up
-Thursday 19 November 2026 in six stories.
+"""Render the 19 November 2026 news image: a newspaper front page.
 
-Run:  python3 generate_image.py
-Writes entry.png next to this file (1024x1024, well under 1 MiB).
-The image is drawn with PIL only, so every word stays crisp and legible.
+Draws the entry image from scratch with PIL only (no AI generation),
+so every word stays crisp and legible at small sizes.
+
+    python3 generate_image.py
+
+writes entry.png (1024x1024) next to this file.
+
+Page plan: a masthead naming the paper, a navy band naming the day,
+a one-line subhead, six story cards in a 2-by-3 grid, and a footer
+that restates the day for the judge.
 """
 
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "entry.png")
+BASE = os.path.dirname(os.path.abspath(__file__))
+TARGET = os.path.join(BASE, "entry.png")
 
-W = H = 1024
-PAPER = (251, 248, 241)      # warm paper white
-INK = (26, 26, 26)           # near-black ink
-CARD = (255, 255, 255)       # panel white
-CARD_EDGE = (216, 210, 196)  # panel border
-MUTED = (85, 85, 85)         # secondary text
+SIDE = 1024
+BG = (251, 248, 241)        # warm paper
+INK = (26, 26, 26)          # near-black
+PANEL = (255, 255, 255)     # card face
+PANEL_LINE = (216, 210, 196)
+GREY = (85, 85, 85)         # secondary text
+BODY = (51, 51, 51)         # story body text
 NAVY = (31, 58, 95)
+WHITE = (255, 255, 255)
 
-FONT_SERIF_B = "/usr/share/fonts/truetype/noto/NotoSerif-Bold.ttf"
-FONT_SERIF_I = "/usr/share/fonts/truetype/noto/NotoSerif-Italic.ttf"
-FONT_SANS_B = "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
-FONT_SANS_R = "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"
+NOTO = "/usr/share/fonts/truetype/noto"
+SERIF_BOLD = NOTO + "/NotoSerif-Bold.ttf"
+SERIF_ITALIC = NOTO + "/NotoSerif-Italic.ttf"
+SANS_BOLD = NOTO + "/NotoSans-Bold.ttf"
+SANS = NOTO + "/NotoSans-Regular.ttf"
 
 
-def font(path, size):
+def load(path, size):
+    """A truetype font at the given pixel size."""
     return ImageFont.truetype(path, size)
 
 
-def wrap(draw, text, fnt, max_width):
-    """Greedy word wrap returning a list of lines fitting max_width."""
-    words = text.split()
-    lines, cur = [], ""
-    for w in words:
-        trial = (cur + " " + w).strip()
-        if draw.textlength(trial, font=fnt) <= max_width:
-            cur = trial
+def split_lines(draw, text, font, width):
+    """Greedy word wrap: lines of `text` that fit inside `width` pixels."""
+    lines = []
+    current = ""
+    for word in text.split():
+        trial = (current + " " + word).strip()
+        if draw.textlength(trial, font=font) <= width:
+            current = trial
         else:
-            if cur:
-                lines.append(cur)
-            cur = w
-    if cur:
-        lines.append(cur)
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
     return lines
 
 
-def draw_icon(d, kind, cx, cy, s, color):
-    """Small pictogram centred at (cx, cy), spanning about s pixels."""
-    w = 5
-    h = s // 2
-    if kind == "globe":
-        d.ellipse([cx - h, cy - h, cx + h, cy + h], outline=color, width=w)
-        d.ellipse([cx - h // 2, cy - h, cx + h // 2, cy + h],
-                  outline=color, width=3)
-        d.line([cx - h, cy, cx + h, cy], fill=color, width=3)
-    elif kind == "bridge":
-        d.arc([cx - h, cy - h, cx + h, cy + h], start=180, end=360,
-              fill=color, width=w)
-        d.line([cx - h, cy, cx + h, cy], fill=color, width=w)
-        d.line([cx - h // 2, cy - h // 2, cx - h // 2, cy],
-               fill=color, width=4)
-        d.line([cx + h // 2, cy - h // 2, cx + h // 2, cy],
-               fill=color, width=4)
-    elif kind == "ship":
-        d.polygon([(cx - h, cy - 4), (cx + h, cy - 4), (cx + h - 8, cy + h // 2),
-                   (cx - h + 8, cy + h // 2)], outline=color, width=w)
-        d.line([cx, cy - h, cx, cy - 4], fill=color, width=4)
-        d.polygon([(cx, cy - h), (cx + 16, cy - h + 8), (cx, cy - h + 12)],
-                  fill=color)
-        d.line([cx - h - 6, cy + h // 2 + 8, cx + h + 6, cy + h // 2 + 8],
-               fill=color, width=3)
-    elif kind == "virus":
-        d.ellipse([cx - h // 2, cy - h // 2, cx + h // 2, cy + h // 2],
-                  outline=color, width=w)
-        for k in range(8):
-            import math
-            a = math.pi * k / 4
-            x1 = cx + int((h // 2 + 2) * math.cos(a))
-            y1 = cy + int((h // 2 + 2) * math.sin(a))
-            x2 = cx + int((h + 4) * math.cos(a))
-            y2 = cy + int((h + 4) * math.sin(a))
-            d.line([x1, y1, x2, y2], fill=color, width=4)
-            d.ellipse([x2 - 3, y2 - 3, x2 + 3, y2 + 3], fill=color)
-    elif kind == "cross":
-        d.ellipse([cx - h, cy - h, cx + h, cy + h], outline=color, width=w)
-        d.rectangle([cx - 6, cy - h // 2, cx + 6, cy + h // 2], fill=color)
-        d.rectangle([cx - h // 2, cy - 6, cx + h // 2, cy + 6], fill=color)
-    elif kind == "scales":
-        d.line([cx, cy - h, cx, cy + h], fill=color, width=w)
-        d.line([cx - h, cy - h + 6, cx + h, cy - h + 6], fill=color, width=w)
-        d.arc([cx - h, cy - h + 6, cx - h // 3, cy + 6], start=0, end=180,
-              fill=color, width=4)
-        d.arc([cx + h // 3, cy - h + 6, cx + h, cy + 6], start=0, end=180,
-              fill=color, width=4)
-        d.line([cx - h, cy + h, cx + h, cy + h], fill=color, width=w)
-    elif kind == "leaf":
-        d.ellipse([cx - h // 2, cy - h, cx + h // 2, cy + h // 2],
-                  outline=color, width=w)
-        d.line([cx, cy + h // 2, cx + h // 2, cy + h], fill=color, width=4)
-        d.line([cx - h // 2 + 4, cy + h // 2 - 4, cx + h // 2 - 4, cy - h + 6],
-               fill=color, width=3)
-    elif kind == "tank":
-        d.rectangle([cx - h, cy - 4, cx + h, cy + h // 2], outline=color, width=w)
-        d.line([cx + h // 3, cy - h // 2, cx + h + 10, cy - h // 2],
-               fill=color, width=w)
-        for dx in (-h // 2, 0, h // 2):
-            d.ellipse([cx + dx - 7, cy + h // 2 - 2, cx + dx + 7, cy + h // 2 + 12],
-                      outline=color, width=3)
-    elif kind == "pencil":
-        d.line([cx - h // 2, cy + h // 2, cx + h // 2, cy - h // 2],
-               fill=color, width=w)
-        d.polygon([(cx + h // 2, cy - h // 2), (cx + h // 2 + 12, cy - h // 2 - 2),
-                   (cx + h // 2 + 2, cy - h // 2 + 12)], fill=color)
-    elif kind == "quake":
-        pts = [(cx - h, cy), (cx - h // 2, cy), (cx - h // 3, cy - h // 2),
-               (cx - h // 6, cy + h // 2), (cx, cy - h // 3),
-               (cx + h // 6, cy + h // 3), (cx + h // 3, cy - h // 2),
-               (cx + h // 2, cy), (cx + h, cy)]
-        d.line(pts, fill=color, width=w, joint="curve")
+def centred(draw, text, font, y, fill):
+    """Draw `text` centred horizontally at height `y`."""
+    x = (SIDE - draw.textlength(text, font=font)) / 2
+    draw.text((x, y), text, font=font, fill=fill)
 
+
+# --- pictograms -------------------------------------------------------
+# Each draws a small mark centred at (cx, cy), about `size` across.
+# They are deliberately simple: a viewer reads them at a glance.
+
+def globe(draw, cx, cy, size, colour):
+    r = size // 2
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=colour, width=5)
+    draw.ellipse([cx - r // 2, cy - r, cx + r // 2, cy + r],
+                 outline=colour, width=3)
+    draw.line([cx - r, cy, cx + r, cy], fill=colour, width=3)
+
+
+def scales(draw, cx, cy, size, colour):
+    r = size // 2
+    draw.line([cx, cy - r, cx, cy + r], fill=colour, width=5)
+    draw.line([cx - r, cy - r + 6, cx + r, cy - r + 6], fill=colour, width=5)
+    draw.arc([cx - r, cy - r + 6, cx - r // 3, cy + 6], 0, 180,
+             fill=colour, width=4)
+    draw.arc([cx + r // 3, cy - r + 6, cx + r, cy + 6], 0, 180,
+             fill=colour, width=4)
+    draw.line([cx - r, cy + r, cx + r, cy + r], fill=colour, width=5)
+
+
+def leaf(draw, cx, cy, size, colour):
+    r = size // 2
+    draw.ellipse([cx - r // 2, cy - r, cx + r // 2, cy + r // 2],
+                 outline=colour, width=5)
+    draw.line([cx, cy + r // 2, cx + r // 2, cy + r], fill=colour, width=4)
+    draw.line([cx - r // 2 + 4, cy + r // 2 - 4, cx + r // 2 - 4, cy - r + 6],
+              fill=colour, width=3)
+
+
+def tank(draw, cx, cy, size, colour):
+    r = size // 2
+    draw.rectangle([cx - r, cy - 4, cx + r, cy + r // 2],
+                   outline=colour, width=5)
+    draw.line([cx + r // 3, cy - r // 2, cx + r + 10, cy - r // 2],
+              fill=colour, width=5)
+    for dx in (-r // 2, 0, r // 2):
+        draw.ellipse([cx + dx - 7, cy + r // 2 - 2, cx + dx + 7, cy + r // 2 + 12],
+                     outline=colour, width=3)
+
+
+def pencil(draw, cx, cy, size, colour):
+    r = size // 2
+    draw.line([cx - r // 2, cy + r // 2, cx + r // 2, cy - r // 2],
+              fill=colour, width=5)
+    draw.polygon([(cx + r // 2, cy - r // 2),
+                  (cx + r // 2 + 12, cy - r // 2 - 2),
+                  (cx + r // 2 + 2, cy - r // 2 + 12)], fill=colour)
+
+
+def ship(draw, cx, cy, size, colour):
+    r = size // 2
+    draw.polygon([(cx - r, cy - 4), (cx + r, cy - 4),
+                  (cx + r - 8, cy + r // 2), (cx - r + 8, cy + r // 2)],
+                 outline=colour, width=5)
+    draw.line([cx, cy - r, cx, cy - 4], fill=colour, width=4)
+    draw.polygon([(cx, cy - r), (cx + 16, cy - r + 8), (cx, cy - r + 12)],
+                 fill=colour)
+    draw.line([cx - r - 6, cy + r // 2 + 8, cx + r + 6, cy + r // 2 + 8],
+              fill=colour, width=3)
+
+
+ICONS = {
+    "globe": globe,
+    "scales": scales,
+    "leaf": leaf,
+    "tank": tank,
+    "pencil": pencil,
+    "ship": ship,
+}
+
+
+# --- the day's stories -------------------------------------------------
+# Kicker, accent colour, icon, headline, one-line summary.
+# Every story happened or was first reported on 19 November 2026.
 
 STORIES = [
-    ("SUMMIT", (31, 58, 95), "globe",
-     "Trump, Xi, Putin sign declaration",
-     "First trilateral in Shenzhen: four-point declaration; Ukraine and Iran not mentioned."),
-    ("COURT", (139, 30, 30), "scales",
-     "Myanmar committed genocide",
-     "ICJ rules 9-6: Myanmar committed genocide against Rohingya; reparations ordered."),
-    ("CLIMATE", (15, 107, 92), "leaf",
-     "COP31 draft drops fossil fuels",
-     "Revised Antalya text removes phase-out language ahead of Friday's deadline."),
-    ("GAZA", (180, 85, 29), "tank",
-     "Israel ends Gaza tank raid",
-     "Israel says it concluded the raid across the Yellow Line; Hamas calls it a ceasefire breach."),
-    ("KOREA", (46, 107, 52), "pencil",
-     "Korea cracks down on exam cheating",
-     "550,000 sit the Suneung; $75,000 rewards for tip-offs; 98 caught cheating."),
-    ("MIGRATION", (74, 85, 104), "ship",
-     "Migrant boat sinks off Senegal",
-     "Boat with about 100 aboard capsizes off Yenne; at least one dead, dozens missing."),
+    {"kicker": "SUMMIT", "colour": (31, 58, 95), "icon": "globe",
+     "head": "Trump, Xi, Putin sign declaration",
+     "body": "First trilateral in Shenzhen: four-point declaration; "
+             "Ukraine and Iran not mentioned."},
+    {"kicker": "COURT", "colour": (139, 30, 30), "icon": "scales",
+     "head": "Myanmar committed genocide",
+     "body": "ICJ rules 9-6: Myanmar committed genocide against "
+             "Rohingya; reparations ordered."},
+    {"kicker": "CLIMATE", "colour": (15, 107, 92), "icon": "leaf",
+     "head": "COP31 draft drops fossil fuels",
+     "body": "Revised Antalya text removes phase-out language ahead "
+             "of Friday's deadline."},
+    {"kicker": "GAZA", "colour": (180, 85, 29), "icon": "tank",
+     "head": "Israel ends Gaza tank raid",
+     "body": "Israel says it concluded the raid across the Yellow "
+             "Line; Hamas calls it a ceasefire breach."},
+    {"kicker": "KOREA", "colour": (46, 107, 52), "icon": "pencil",
+     "head": "Korea cracks down on exam cheating",
+     "body": "550,000 sit the Suneung; $75,000 rewards for tip-offs; "
+             "98 caught cheating."},
+    {"kicker": "MIGRATION", "colour": (74, 85, 104), "icon": "ship",
+     "head": "Migrant boat sinks off Senegal",
+     "body": "Boat with about 100 aboard capsizes off Yenne; at "
+             "least one dead, dozens missing."},
 ]
 
 
-def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
+def card(draw, story, x, y, width, height):
+    """One story card: colour bar, kicker, headline, summary, icon."""
+    colour = story["colour"]
+    draw.rectangle([x, y, x + width, y + height], fill=PANEL,
+                   outline=PANEL_LINE, width=2)
+    draw.rectangle([x, y, x + width, y + 8], fill=colour)
+
+    kick_font = load(SANS_BOLD, 20)
+    head_font = load(SANS_BOLD, 32)
+    body_font = load(SANS, 22)
+    text_width = 348  # keep the icon strip on the right clear
+
+    draw.text((x + 18, y + 26), story["kicker"], font=kick_font, fill=colour)
+
+    head_lines = split_lines(draw, story["head"], head_font, text_width)
+    line_y = y + 58
+    for line in head_lines[:2]:
+        draw.text((x + 18, line_y), line, font=head_font, fill=INK)
+        line_y += 39
+
+    body_lines = split_lines(draw, story["body"], body_font, text_width)
+    line_y += 8
+    for line in body_lines[:3]:
+        draw.text((x + 18, line_y), line, font=body_font, fill=BODY)
+        line_y += 29
+
+    ICONS[story["icon"]](draw, x + width - 52, y + height // 2, 64, colour)
+
+
+def build():
+    img = Image.new("RGB", (SIDE, SIDE), BG)
+    draw = ImageDraw.Draw(img)
 
     # Outer frame.
-    d.rectangle([14, 14, W - 15, H - 15], outline=INK, width=2)
+    draw.rectangle([14, 14, SIDE - 15, SIDE - 15], outline=INK, width=2)
 
     # Masthead.
-    title = "THE WORLD IN ONE DAY"
-    f_title = font(FONT_SERIF_B, 58)
-    d.text(((W - d.textlength(title, font=f_title)) / 2, 34),
-           title, font=f_title, fill=INK)
-    d.line([28, 108, W - 28, 108], fill=INK, width=2)
+    masthead = "THE WORLD IN ONE DAY"
+    centred(draw, masthead, load(SERIF_BOLD, 58), 34, INK)
+    draw.line([28, 108, SIDE - 28, 108], fill=INK, width=2)
 
     # Date band: the day must be unmissable.
-    d.rectangle([28, 118, W - 28, 162], fill=NAVY)
-    date = "THURSDAY  \u2022  19 NOVEMBER 2026"
-    f_date = font(FONT_SANS_B, 34)
-    d.text(((W - d.textlength(date, font=f_date)) / 2, 124),
-           date, font=f_date, fill=(255, 255, 255))
+    draw.rectangle([28, 118, SIDE - 28, 162], fill=NAVY)
+    centred(draw, "THURSDAY  \u2022  19 NOVEMBER 2026",
+            load(SANS_BOLD, 34), 124, WHITE)
 
     # Subhead.
-    sub = "Six stories that defined the day, as reported on 19 November 2026."
-    f_sub = font(FONT_SERIF_I, 23)
-    d.text(((W - d.textlength(sub, font=f_sub)) / 2, 172),
-           sub, font=f_sub, fill=MUTED)
-    d.line([28, 208, W - 28, 208], fill=INK, width=1)
+    centred(draw, "Six stories that defined the day, as reported on 19 November 2026.",
+            load(SERIF_ITALIC, 23), 172, GREY)
+    draw.line([28, 208, SIDE - 28, 208], fill=INK, width=1)
 
-    # Story grid: 2 columns x 3 rows.
+    # Story grid: two columns, three rows.
     margin, col_w, col_gap = 28, 476, 16
     row_h, row_gap, grid_top = 236, 14, 226
-    f_kick = font(FONT_SANS_B, 20)
-    f_head = font(FONT_SANS_B, 32)
-    f_body = font(FONT_SANS_R, 22)
-
-    for i, (kicker, color, icon, head, body) in enumerate(STORIES):
+    for i, story in enumerate(STORIES):
         col, row = i % 2, i // 2
         x = margin + col * (col_w + col_gap)
         y = grid_top + row * (row_h + row_gap)
-        d.rectangle([x, y, x + col_w, y + row_h], fill=CARD,
-                    outline=CARD_EDGE, width=2)
-        d.rectangle([x, y, x + col_w, y + 8], fill=color)
-
-        text_w = 348  # icon strip on the right stays clear
-        d.text((x + 18, y + 26), kicker, font=f_kick, fill=color)
-        head_lines = wrap(d, head, f_head, text_w)
-        hy = y + 58
-        for line in head_lines[:2]:
-            d.text((x + 18, hy), line, font=f_head, fill=INK)
-            hy += 39
-        body_lines = wrap(d, body, f_body, text_w)
-        by = hy + 8
-        for line in body_lines[:3]:
-            d.text((x + 18, by), line, font=f_body, fill=(51, 51, 51))
-            by += 29
-
-        draw_icon(d, icon, x + col_w - 52, y + row_h // 2, 64, color)
+        card(draw, story, x, y, col_w, row_h)
 
     # Footer: a plain line for the judge, stating the day again.
-    foot = "All six stories above happened or were first reported on 19 November 2026."
-    f_foot = font(FONT_SANS_R, 19)
-    d.text(((W - d.textlength(foot, font=f_foot)) / 2, 972),
-           foot, font=f_foot, fill=MUTED)
+    centred(draw, "All six stories above happened or were first reported on 19 November 2026.",
+            load(SANS, 19), 972, GREY)
+    return img
 
-    img.save(OUT, "PNG", optimize=True)
-    size = os.path.getsize(OUT)
-    print(f"wrote {OUT}  {img.size[0]}x{img.size[1]}  {size} bytes")
+
+def main():
+    img = build()
+    img.save(TARGET, "PNG", optimize=True)
+    size = os.path.getsize(TARGET)
+    print(f"wrote {TARGET}  {img.size[0]}x{img.size[1]}  {size} bytes")
 
 
 if __name__ == "__main__":
